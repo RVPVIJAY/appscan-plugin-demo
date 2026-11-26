@@ -1,0 +1,50 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  name: Default
+
+variables:
+  - group: appscan-plugin-state     # APPSCAN_APP_ID and APPSCAN_SCAN_ID (NONE on first run)
+
+steps:
+  - checkout: self
+
+  - task: Maven@3
+    displayName: 'Task 1 - Maven build'
+    inputs:
+      mavenPomFile: 'pom.xml'
+      goals: 'clean package'
+      publishJUnitResults: false
+
+  - task: PowerShell@2
+    displayName: 'Copy pom.xml into target'
+    inputs:
+      targetType: 'inline'
+      script: Copy-Item "$(Build.SourcesDirectory)\pom.xml" "$(Build.SourcesDirectory)\target\pom.xml" -Force
+
+  - task: HCLAppScanOnCloud@2
+    displayName: 'Task 2 - First scan (plug-in)'
+    condition: and(succeeded(), eq(variables['APPSCAN_SCAN_ID'], 'NONE'))
+    inputs:
+      AppSecTestService: 'appscan360-conn'
+      applications: '$(APPSCAN_APP_ID)'
+      scanname: 'sample-app-baseline-$(Build.BuildNumber)'
+      scantype: 'static'
+      scanloc: '$(Build.SourcesDirectory)\target'
+      scanMethod: 'IRX'
+
+  - task: HCLAppScanOnCloud@2
+    displayName: 'Task 3 - Rescan (plug-in)'
+    condition: and(succeeded(), ne(variables['APPSCAN_SCAN_ID'], 'NONE'))
+    inputs:
+      AppSecTestService: 'appscan360-conn'
+      applications: '$(APPSCAN_APP_ID)'
+      scanname: 'sample-app-rescan-$(Build.BuildNumber)'
+      scantype: 'static'
+      rescan: true
+      scanid: '$(APPSCAN_SCAN_ID)'
+      scanloc: '$(Build.SourcesDirectory)\target'
+      scanMethod: 'IRX'
