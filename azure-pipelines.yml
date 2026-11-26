@@ -70,4 +70,14 @@ steps:
 
   # ---------- Later runs: scan ID exists ----------
   - task: HCLAppScanOnCloud@2
-    displayName: 'Task 3 - SCA rescan
+    displayName: 'Task 3 - SCA rescan (plug-in)'
+    condition: and(succeeded(), ne(variables['APPSCAN_SCAN_ID'], 'NONE'))
+    inputs:
+      AppSecTestService: 'appscan360-conn'
+      applications: '$(APPSCAN_APP_ID)'
+      scanname: 'sample-app-sca-rescan-$(Build.BuildNumber)'
+      scantype: 'sca'
+      rescan: true
+      scanid: '$(APPSCAN_SCAN_ID)'
+      scanloc: '$(Build.SourcesDirectory)'
+      scanMethod: 'IRX'
