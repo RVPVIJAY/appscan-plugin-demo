@@ -34,6 +34,7 @@ steps:
       scanloc: '$(Build.SourcesDirectory)'
       scanMethod: 'IRX'
 
+  
   - task: PowerShell@2
     displayName: 'Save scan ID from Task 2 log (first run only)'
     condition: and(succeeded(), eq(variables['APPSCAN_SCAN_ID'], 'NONE'))
@@ -47,26 +48,63 @@ steps:
         $project = [uri]::EscapeDataString($env:SYSTEM_TEAMPROJECT)
         $base = "$($env:SYSTEM_COLLECTIONURI)$project/_apis"
 
-        # 1. List every log of this build and look for the scan ID line
+        # 1. Extract scan ID from build logs
         $logs = Invoke-RestMethod -Uri "$base/build/builds/$($env:BUILD_BUILDID)/logs?api-version=7.1" -Headers $headers
         Write-Host "Logs found in this build: $($logs.count)"
+
         $scanId = $null
         foreach ($l in $logs.value) {
           $text = (Invoke-WebRequest -Uri $l.url -Headers $headers -UseBasicParsing).Content
           $m = [regex]::Match($text, 'Successfully submitted scan:\s*([0-9a-fA-F\-]{36})')
-          if ($m.Success) { $scanId = $m.Groups[1].Value; break }
+          if ($m.Success) {
+            $scanId = $m.Groups[1].Value
+            break
+          }
         }
-        if (-not $scanId) { throw "Scan ID not found in any log of this build" }
+
+        if (-not $scanId) {
+          throw "Scan ID not found in any log of this build"
+        }
+
         Write-Host "Scan ID found: $scanId"
 
-        # 2. Save it into the variable group
+        # 2. Update the Variable Group
         $res = Invoke-RestMethod -Uri "$base/distributedtask/variablegroups?groupName=appscan-plugin-state&api-version=7.1" -Headers $headers
-        if ($res.count -lt 1) { throw "Variable group 'appscan-plugin-state' not found" }
+
+        if ($res.count -lt 1) {
+          throw "Variable group 'appscan-plugin-state' not found"
+        }
+
         $group = $res.value[0]
         $group.variables.APPSCAN_SCAN_ID.value = $scanId
-        $body = $group | ConvertTo-Json -Depth 10
-        Invoke-RestMethod -Method Put -Uri "$base/distributedtask/variablegroups/$($group.id)?api-version=7.1" -Headers $headers -ContentType "application/json" -Body $body | Out-Null
+
+        $projectId = $env:SYSTEM_TEAMPROJECTID
+
+        $body = @{
+          id          = $group.id
+          name        = $group.name
+          type        = $group.type
+          description = $group.description
+          variables   = $group.variables
+          variableGroupProjectReferences = @(
+            @{
+              name = $group.name
+              projectReference = @{
+                id   = $projectId
+                name = $env:SYSTEM_TEAMPROJECT
+              }
+            }
+          )
+        } | ConvertTo-Json -Depth 20
+
+        Invoke-RestMethod -Method Put `
+          -Uri "$base/distributedtask/variablegroups/$($group.id)?api-version=7.1" `
+          -Headers $headers `
+          -ContentType "application/json" `
+          -Body $body | Out-Null
+
         Write-Host "Saved APPSCAN_SCAN_ID to variable group 'appscan-plugin-state'"
+
 
   # ---------- Later runs: scan ID exists ----------
   - task: HCLAppScanOnCloud@2
