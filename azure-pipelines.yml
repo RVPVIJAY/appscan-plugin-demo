@@ -19,31 +19,25 @@ steps:
       goals: 'clean package'
       publishJUnitResults: false
 
-  - task: PowerShell@2
-    displayName: 'Copy pom.xml into target'
-    inputs:
-      targetType: 'inline'
-      script: Copy-Item "$(Build.SourcesDirectory)\pom.xml" "$(Build.SourcesDirectory)\target\pom.xml" -Force
-
   - task: HCLAppScanOnCloud@2
-    displayName: 'Task 2 - First scan (plug-in)'
+    displayName: 'Task 2 - First SCA scan (plug-in)'
     condition: and(succeeded(), eq(variables['APPSCAN_SCAN_ID'], 'NONE'))
     inputs:
       AppSecTestService: 'appscan360-conn'
       applications: '$(APPSCAN_APP_ID)'
-      scanname: 'sample-app-baseline-$(Build.BuildNumber)'
-      scantype: 'static'
+      scanname: 'sample-app-sca-baseline-$(Build.BuildNumber)'
+      scantype: 'sca'
       scanloc: '$(Build.SourcesDirectory)'
       scanMethod: 'IRX'
 
   - task: HCLAppScanOnCloud@2
-    displayName: 'Task 3 - Rescan (plug-in)'
+    displayName: 'Task 3 - SCA rescan (plug-in)'
     condition: and(succeeded(), ne(variables['APPSCAN_SCAN_ID'], 'NONE'))
     inputs:
       AppSecTestService: 'appscan360-conn'
       applications: '$(APPSCAN_APP_ID)'
-      scanname: 'sample-app-rescan-$(Build.BuildNumber)'
-      scantype: 'static'
+      scanname: 'sample-app-sca-rescan-$(Build.BuildNumber)'
+      scantype: 'sca'
       rescan: true
       scanid: '$(APPSCAN_SCAN_ID)'
       scanloc: '$(Build.SourcesDirectory)'
