@@ -33,7 +33,7 @@ steps:
       applications: '$(APPSCAN_APP_ID)'
       scanname: 'sample-app-baseline-$(Build.BuildNumber)'
       scantype: 'static'
-      scanloc: '$(Build.SourcesDirectory)\target'
+      scanloc: '$(Build.SourcesDirectory)'
       scanMethod: 'IRX'
 
   - task: HCLAppScanOnCloud@2
@@ -46,5 +46,5 @@ steps:
       scantype: 'static'
       rescan: true
       scanid: '$(APPSCAN_SCAN_ID)'
-      scanloc: '$(Build.SourcesDirectory)\target'
+      scanloc: '$(Build.SourcesDirectory)'
       scanMethod: 'IRX'
