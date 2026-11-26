@@ -7,7 +7,7 @@ pool:
   name: Default
 
 variables:
-  - group: appscan-plugin-state     # APPSCAN_APP_ID and APPSCAN_SCAN_ID (NONE on first run)
+  - group: appscan-plugin-state     # APPSCAN_APP_ID and APPSCAN_SCAN_ID (NONE until the first scan)
 
 steps:
   - checkout: self
@@ -19,6 +19,10 @@ steps:
       goals: 'clean package'
       publishJUnitResults: false
 
+  - script: echo APPSCAN_SCAN_ID is [$(APPSCAN_SCAN_ID)]
+    displayName: 'Show scan ID (debug)'
+
+  # ---------- First run: no scan ID stored yet ----------
   - task: HCLAppScanOnCloud@2
     displayName: 'Task 2 - First SCA scan (plug-in)'
     condition: and(succeeded(), eq(variables['APPSCAN_SCAN_ID'], 'NONE'))
@@ -30,6 +34,41 @@ steps:
       scanloc: '$(Build.SourcesDirectory)'
       scanMethod: 'IRX'
 
+  - task: PowerShell@2
+    displayName: 'Save scan ID from Task 2 log (first run only)'
+    condition: and(succeeded(), eq(variables['APPSCAN_SCAN_ID'], 'NONE'))
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    inputs:
+      targetType: 'inline'
+      script: |
+        $ErrorActionPreference = "Stop"
+        $headers = @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
+        $project = [uri]::EscapeDataString($env:SYSTEM_TEAMPROJECT)
+        $base = "$($env:SYSTEM_COLLECTIONURI)$project/_apis"
+
+        # 1. Find the log of the first-scan task in this build
+        $timeline = Invoke-RestMethod -Uri "$base/build/builds/$($env:BUILD_BUILDID)/timeline?api-version=7.1" -Headers $headers
+        $rec = $timeline.records | Where-Object { $_.name -like "*First SCA scan*" -and $_.type -eq "Task" } | Select-Object -First 1
+        if (-not $rec -or -not $rec.log) { throw "Could not find the log of the first scan task" }
+        $log = (Invoke-WebRequest -Uri $rec.log.url -Headers $headers -UseBasicParsing).Content
+
+        # 2. Read the scan ID from the line 'Successfully submitted scan: <id> ...'
+        $m = [regex]::Match($log, 'Successfully submitted scan:\s*([0-9a-fA-F\-]{36})')
+        if (-not $m.Success) { throw "Scan ID not found in the Task 2 log" }
+        $scanId = $m.Groups[1].Value
+        Write-Host "Scan ID found: $scanId"
+
+        # 3. Save it into the variable group
+        $res = Invoke-RestMethod -Uri "$base/distributedtask/variablegroups?groupName=appscan-plugin-state&api-version=7.1" -Headers $headers
+        if ($res.count -lt 1) { throw "Variable group 'appscan-plugin-state' not found" }
+        $group = $res.value[0]
+        $group.variables.APPSCAN_SCAN_ID.value = $scanId
+        $body = $group | ConvertTo-Json -Depth 10
+        Invoke-RestMethod -Method Put -Uri "$base/distributedtask/variablegroups/$($group.id)?api-version=7.1" -Headers $headers -ContentType "application/json" -Body $body | Out-Null
+        Write-Host "Saved APPSCAN_SCAN_ID to variable group 'appscan-plugin-state'"
+
+  # ---------- Later runs: scan ID exists ----------
   - task: HCLAppScanOnCloud@2
     displayName: 'Task 3 - SCA rescan (plug-in)'
     condition: and(succeeded(), ne(variables['APPSCAN_SCAN_ID'], 'NONE'))
