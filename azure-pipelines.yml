@@ -58,12 +58,31 @@ steps:
         if (-not $scanId) { throw "Scan ID not found in any log of this build" }
         Write-Host "Scan ID found: $scanId"
 
-        # 2. Save it into the variable group
+        # 2. Read the variable group
         $res = Invoke-RestMethod -Uri "$base/distributedtask/variablegroups?groupName=appscan-plugin-state&api-version=7.1" -Headers $headers
         if ($res.count -lt 1) { throw "Variable group 'appscan-plugin-state' not found" }
         $group = $res.value[0]
         $group.variables.APPSCAN_SCAN_ID.value = $scanId
-        $body = $group | ConvertTo-Json -Depth 10
+
+        # 3. Build the update body with an explicit project reference
+        $update = @{
+          id          = $group.id
+          type        = $group.type
+          name        = $group.name
+          description = $group.description
+          variables   = $group.variables
+          variableGroupProjectReferences = @(
+            @{
+              name        = $group.name
+              description = $group.description
+              projectReference = @{
+                id   = $env:SYSTEM_TEAMPROJECTID
+                name = $env:SYSTEM_TEAMPROJECT
+              }
+            }
+          )
+        }
+        $body = $update | ConvertTo-Json -Depth 10
         Invoke-RestMethod -Method Put -Uri "$base/distributedtask/variablegroups/$($group.id)?api-version=7.1" -Headers $headers -ContentType "application/json" -Body $body | Out-Null
         Write-Host "Saved APPSCAN_SCAN_ID to variable group 'appscan-plugin-state'"
 
